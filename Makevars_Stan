@@ -1,0 +1,9 @@
+CXXFLAGS=-Os -mtune=native -march=native
+CXXFLAGS += -Wno-unused-variable -Wno-unused-function -Wno-unknown-pragmas -Wno-macro-redefined
+CXX=clang++
+CXX11FLAGS=-Os -mtune=native -march=native
+CXX11FLAGS += -Wno-unused-variable -Wno-unused-function -Wno-unknown-pragmas -Wno-macro-redefined
+CXX11=clang++
+CXX14FLAGS=-Os -mtune=native -march=native
+CXX14FLAGS += -Wno-unused-variable -Wno-unused-function -Wno-unknown-pragmas -Wno-macro-redefined
+CXX14=clang++
