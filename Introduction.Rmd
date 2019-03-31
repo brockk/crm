@@ -1,0 +1,561 @@
+---
+title: "Hands-On CRM"
+author: "Kristian Brock"
+date: "30/03/2019"
+output:
+  ioslides_presentation:
+    widescreen: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(dplyr)
+```
+
+## Lesson Plan
+
+* Fundamentals (30 mins)
+* `dfcrm` package (45 mins)
+* Mathematics behind the scene (30 mins)
+
+
+# CRM Fundamentals
+
+## Introduction
+
+The CRM iteratively changes dose, seeking some acceptable target probability of toxicity, $Prob(DLT)$.
+
+It uses a statistical model to perform an equivalent job to 3+3.
+
+CRM and 3+3 **only make sense** under the expectation that a higher dose will be better for the patient.
+
+
+## Vital Ingredients
+
+Two critical pieces:
+
+- `skeleton` is the prior guess of $Prob(DLT)$ at each dose
+- `target` is the desired $Prob(DLT)$
+
+E.g.
+```{r, echo = TRUE}
+skeleton = c(0.1, 0.15, 0.25, 0.35, 0.5)
+target = 0.25
+```
+
+## `skeleton`
+
+- Strictly increasing (aka _monotonically_ increasing)
+
+```{r, echo = TRUE}
+num_doses = length(skeleton)
+dose_data = data.frame(Dose = 1:num_doses, ProbDLT = skeleton, Belief = 'Prior')
+kable(dose_data)
+```
+
+
+## `skeleton`
+```{r, echo = TRUE}
+library(ggplot2)
+ggplot(dose_data, aes(x = Dose, y = ProbDLT)) + 
+  geom_point() + geom_line() + ylim(0, 1)
+```
+
+
+## `target`
+
+```{r, echo = TRUE}
+ggplot(dose_data, aes(x = Dose, y = ProbDLT)) + 
+  geom_point() + geom_line() + ylim(0, 1) + 
+  geom_hline(yintercept = target, linetype = 'dashed', col = 'red')
+```
+
+- Where `target` intersects the $Prob(DLT)$ curve is the recommended dose.
+- In reality, we usually avoid skipping untested doses.
+
+
+## CRM slides the skeleton up & down
+
+```{r, echo = FALSE, warning=FALSE}
+this_plot_data = bind_rows(
+  dose_data,
+  data.frame(Dose = 1:num_doses, ProbDLT = skeleton^0.7, Belief = 'Posterior 1'),
+  data.frame(Dose = 1:num_doses, ProbDLT = skeleton^1.3, Belief = 'Posterior 2')
+)
+
+ggplot(this_plot_data, aes(x = Dose, y = ProbDLT)) + 
+  geom_point() + 
+  geom_line(aes(group = Belief, col = Belief)) + 
+  ylim(0, 1) + 
+  geom_hline(yintercept = target, linetype = 'dashed', col = 'red')
+```
+
+## How does CRM slide the skeleton?
+
+```{r, echo = TRUE}
+skeleton
+```
+
+```{r, echo = TRUE}
+skeleton^0.7
+```
+
+```{r, echo = TRUE}
+skeleton^1.3
+```
+
+## A workable model
+
+Raising the skeleton to a power raises and lowers it...
+
+... depending on whether the power is >1 or <1.
+
+... But what happens when the power is < 0?
+
+## Task 
+
+What happens to `skeleton` when raised to a negative power?
+Is that OK?
+
+Follow the example in `Introduction.R`.
+
+## Solution 
+```{r, echo = TRUE}
+skeleton^-1
+```
+
+```{r, echo = TRUE}
+skeleton^-0.001
+```
+
+Values >1 do not fly for probabilities.
+
+## Powers must be positive
+
+* The powers that `skeleton` can be raised to must be positive.
+* How might we guarantee that?
+* **Two ways** may spring to mind.
+
+## Powers must be positive
+
+Let the true dose-DLT curve be $\pi(x)$ at dose $0 < x < 1$.
+
+The _empiric_ or _power-model_ CRM estimates $\pi$ using the model $$F(x, \beta) = x^\beta$$
+
+To ensure a positive power, we could:
+
+1. Use a prior that guarantees $Prob(\beta < 0) = 0$.
+2. Transform the model specification $$F(x, \beta) = x^{\exp{(\beta)}}$$
+
+## Some early warning signs
+
+* The skeleton must be strictly increasing. 
+* Appreciable toxicity should be _expected_ over the dose range. 
+* Toxicity should be the burden of efficacy. 
+
+If the investigators want a skeleton with plateaus, or a very low-tox skeleton, or a very low toxicity target, perhaps a toxicity-chasing design like CRM or 3+3 is not the solution.
+
+```{r, echo = FALSE, fig.width=9, fig.height=3}
+ggplot(dose_data, aes(x = Dose, y = ProbDLT)) + 
+  geom_point() + geom_line() + ylim(0, 1) + 
+  geom_hline(yintercept = target, linetype = 'dashed', col = 'red')
+```
+
+# `dfcrm`
+
+## `dfcrm` package
+
+Kuen Cheung released the `dfcrm` R-package to accompany his book [_Dose-Finding by the Continual Reassessment Method_](https://www.amazon.co.uk/Finding-Continual-Reassessment-Chapman-Biostatistics/dp/1420091514) (Chapman & Hall).
+
+Load it with the command
+
+```{r, echo=TRUE}
+library(dfcrm)
+```
+
+## Fitting a model
+
+Fit the CRM model to outcomes using the `crm` function:
+```{r, echo=TRUE, eval=TRUE}
+fit = crm(prior = skeleton, target = target, 
+          tox = c(0,0,0, 0,1,0), 
+          level = c(2,2,2, 3,3,3))
+```
+
+The first parameter, `prior`, is the expected $Prob(DLT)$ curve that we called `skeleton`.
+
+`target` should be obvious.
+
+The `tox` parameter conveys the toxicity status of the patients.
+
+The `level` parameter conveys the doses given, starting from 1.
+
+These outcomes could be described `2NNN 3NTN`
+
+## `fit` object {.smaller}
+```{r, echo=TRUE}
+fit
+```
+
+## `fit` object, continued
+
+After `2NNN 3NTN`:
+
+```{r}
+fit$ptox
+```
+
+```{r}
+fit$mtd
+```
+
+
+## Task
+
+Fit a CRM model to outcomes:
+
+`2NNN 3NNN 4TTN`
+
+What is the posterior probability of toxicity?
+
+What does is recommended for the next cohort?
+
+## Solution
+
+```{r, echo=TRUE, eval=TRUE}
+fit2 = crm(prior = skeleton, target = target, 
+           tox = c(0,0,0, 0,0,0, 1,1,0), 
+           level = c(2,2,2, 3,3,3, 4,4,4))
+
+fit2$ptox
+```
+
+```{r}
+fit2$mtd
+```
+
+## More parameters to `crm`
+
+There are more parameters to `crm` that we have not specified.
+
+Setting `model` as in
+```{r, eval=FALSE, echo = TRUE}
+fit3 = crm(prior = skeleton, target = target, 
+           tox = c(0,0,0, 0,1,0), 
+           level = c(2,2,2, 3,3,3), model = 'logistic')
+```
+
+
+will fit the model
+
+$$ F(x, \beta) = \frac{\exp{(a_0 + \beta x)}}{1 + \exp{(a_0 + \beta x)}} $$
+
+By default, $a_0 = 3$ but you can override this.
+
+## Task
+
+Fit a logistic CRM model to outcomes:
+
+`2NNN 3NNN 4TTN`
+
+Is the dose recommended the same as the empiric model?
+
+Do the posterior `Prob(DLT)` curves differ?
+
+## Solution
+
+```{r, echo=TRUE}
+fit4 = crm(prior = skeleton, target = target, 
+           tox = c(0,0,0, 0,0,0, 1,1,0), 
+           level = c(2,2,2, 3,3,3, 4,4,4), model = 'logistic')
+```
+
+```{r}
+c(fit2$mtd, fit4$mtd)
+```
+
+```{r}
+data.frame(Dose = 1:num_doses, Power = fit2$ptox, Logistic = fit4$ptox)
+```
+
+## Specifying priors
+
+Priors may be informed by:
+
+* Literature on use in humans
+* Investigator beliefs
+* Preclinical studies
+
+Even then, `dfcrm` provides some help
+
+## `getprior` in `dfcrm`
+
+The `getprior` command will create a sensible prior for you given the following:
+
+* a `haldwidth`, and 0.05 or 0.1 or values within will do just fine;
+* the target DLT rate;
+* the predicted index of the dose-level at which target DLT rate will be seen (for some reason, called `nu`);
+* the number of dose-levels.
+
+E.g.
+```{r}
+getprior(halfwidth = 0.05, target = 0.25, nu = 2, nlevel = 5)
+```
+
+## Effect of half-width
+
+```{r}
+prior1 = getprior(halfwidth = 0.05, target = target, nu = 2, nlevel = num_doses)
+prior2 = getprior(halfwidth = 0.1, target = target, nu = 2, nlevel = num_doses)
+plot(1:num_doses, prior2, type = 'b', col = 'blue')
+points(1:num_doses, prior1, type = 'b', col = 'green')
+```
+
+## The same graph but prettier
+
+```{r}
+bind_rows(data.frame(Dose = 1:num_doses, ProbDLT = prior1, HalfWidth = 0.05),
+          data.frame(Dose = 1:num_doses, ProbDLT = prior2, HalfWidth = 0.1)) %>% 
+  ggplot(aes(x = Dose, y = ProbDLT, group = HalfWidth, col = HalfWidth)) + 
+  geom_point() + geom_line()
+```
+
+## Task
+
+Choose a half-width (somewhere between 0.05 and 0.1) and keep it fixed.
+
+Create five priors that in-turn assume that dose-levels 1,...,5 are the correct dose.
+
+Plot the five priors together. Use colour to distinguish them.
+
+
+## Solution 
+
+```{r}
+prior1 = getprior(halfwidth = 0.1, target = target, nu = 1, nlevel = num_doses)
+prior2 = getprior(halfwidth = 0.1, target = target, nu = 2, nlevel = num_doses)
+prior3 = getprior(halfwidth = 0.1, target = target, nu = 3, nlevel = num_doses)
+prior4 = getprior(halfwidth = 0.1, target = target, nu = 4, nlevel = num_doses)
+prior5 = getprior(halfwidth = 0.1, target = target, nu = 5, nlevel = num_doses)
+
+priors_data = bind_rows(
+  data.frame(Dose = 1:num_doses, ProbDLT = prior1, Guess = 1),
+  data.frame(Dose = 1:num_doses, ProbDLT = prior2, Guess = 2),
+  data.frame(Dose = 1:num_doses, ProbDLT = prior3, Guess = 3),
+  data.frame(Dose = 1:num_doses, ProbDLT = prior4, Guess = 4),
+  data.frame(Dose = 1:num_doses, ProbDLT = prior5, Guess = 5)
+) %>% mutate(Guess = factor(Guess))
+```
+
+## Solution (cont)
+
+```{r}
+priors_data %>% 
+  ggplot(aes(x = Dose, y = ProbDLT, group = Guess, col = Guess)) + 
+  geom_point() + geom_line()
+```
+
+## The prior on $\beta$
+
+By default in `dfcrm`, it takes the prior $\beta \sim N(0, 1.34)$.
+
+Keeping the mean fixed at 0 is fine - why? 
+
+(Recall that the model is $F(x, \beta) = x^{\exp{(\beta)}}$)
+
+The prior SD of $\beta$ determines how much the skeleton may be raised or lowered.
+
+You can specify an alternative SD using the `scale` parameter in `crm`.
+
+## Effect of prior on $\beta$
+
+Contrast these models fit to 2NNN 3TNT
+```{r, echo=FALSE}
+fit5 = crm(prior = skeleton, target = target, 
+           tox = c(0,0,0, 1,0,1), 
+           level = c(2,2,2, 3,3,3), scale = sqrt(0.75))
+fit6 = crm(prior = skeleton, target = target, 
+           tox = c(0,0,0, 1,0,1), 
+           level = c(2,2,2, 3,3,3), scale = sqrt(1.34))
+fit7 = crm(prior = skeleton, target = target, 
+           tox = c(0,0,0, 1,0,1), 
+           level = c(2,2,2, 3,3,3), scale = sqrt(2))
+
+bind_rows(
+  tibble(Dose = 1:num_doses, ProbDLT = fit5$ptox, Series = 'BetaVar = 0.75'),
+  tibble(Dose = 1:num_doses, ProbDLT = fit6$ptox, Series = 'BetaVar = 1.34'),
+  tibble(Dose = 1:num_doses, ProbDLT = fit7$ptox, Series = 'BetaVar = 2'),
+  tibble(Dose = 1:num_doses, ProbDLT = skeleton, Series = 'Skeleton')
+) %>% 
+  ggplot(aes(x = Dose, y = ProbDLT, group = Series, col = Series)) + 
+  geom_point() + geom_line()
+```
+
+The tighter prior on $\beta$ hugs the posterior closer to the skeleton.
+
+# The mathematics behind the scene
+
+## Bayesian updating
+
+Let $Y_i$ be a random variable taking values $\left\{0, 1\right\}$ representing the presence or absence of DLT in patient $i$.
+
+Let $x_i$ be the dose given to patient $i$.
+
+Evaluating the outcomes and doses for $i$ patients, the likelihood of $\beta$ is
+
+$$ L_i(\beta) = \prod_{j=1}^i \left\{ F(x_j, \beta) \right\}^{Y_j} \left\{ 1 - F(x_j, \beta) \right\}^{1-Y_j} $$
+
+## Posterior mean of $\beta$
+
+Let $\beta$ have prior $f(\beta)$.
+
+The posterior expected value for $\beta$ after the evaluation of $i$ patients is
+
+$$ \hat{\beta}_i = \frac{\int_{-\infty}^\infty \beta f(\beta)L_i(\beta) d\beta}{\int_{-\infty}^\infty f(\beta)L_i(\beta) d\beta} $$
+
+## Plug in estimate for posterior Prob(DLT)
+
+In `dfcrm`, the estimate $\hat{\beta}_i$ is plugged into $F(x, \beta)$ to estimate the posterior Prob(DLT) curve.
+Regardez! $\hat{\beta}_i$ is 
+
+```{r}
+fit7$estimate
+```
+
+```{r}
+fit7$ptox
+```
+
+```{r}
+skeleton^exp(fit7$estimate)
+```
+
+## Numerically deriving $\hat{\beta}_i$
+
+The posterior distribution of $\beta$ is proportional to $f(\beta)L_i(\beta)$.
+
+Assume we observed 2NNN 3TNT
+
+```{r, echo=FALSE}
+# This is the likelihood function.
+empiric_lik <- function(beta, skeleton, doses, tox) {
+  lik <- 1
+  for(i in 1:length(doses)) {
+    lik = lik * (skeleton[doses[i]]^exp(beta))^tox[i] * 
+      (1 - skeleton[doses[i]]^exp(beta))^(1 - tox[i])
+  }
+  lik
+}
+
+f = function(x) empiric_lik(x, skeleton, doses = c(2,2,2, 3,3,3), 
+                            tox = c(0,0,0, 1,0,1))
+g = function(x) f(x) * dnorm(x, mean = 0, sd = sqrt(2))
+
+# Monte Carlo integration
+beta_samp <- runif(1000, -2, 2)
+g_samp = g(beta_samp)
+beta_hat_df = tibble(x = beta_samp, y = g_samp)
+beta_hat_head_df = beta_hat_df %>% head(30)
+
+# How to solve an integral numerically, graphical guide:
+# Intergrand
+beta_hat_df %>% 
+  ggplot(aes(x, y)) + geom_line() + 
+  labs(x = 'beta', y = 'Prob')
+```
+
+## Sample representative points on the x-axis
+```{r, echo=FALSE}
+# Sample points on x-axis
+beta_hat_df %>% 
+  ggplot(aes(x, y)) + geom_line() + 
+  geom_point(data = beta_hat_head_df, aes(y = 0)) + 
+  labs(x = 'beta', y = 'Prob')
+```
+
+## Evaluate function at those points
+
+```{r, echo=FALSE}
+beta_hat_df %>% 
+  ggplot(aes(x, y)) + geom_line() + 
+  geom_point(data = beta_hat_head_df, aes(y = 0)) + 
+  geom_point(data = beta_hat_head_df) +
+  geom_linerange(data = beta_hat_df %>% head(30), aes(ymin = 0, ymax = y)) + 
+  labs(x = 'beta', y = 'Prob')
+```
+
+## Calcuate their mean
+
+```{r, echo=FALSE}
+# Take their mean
+beta_hat_df %>% 
+  ggplot(aes(x, y)) + geom_line() + 
+  geom_point(data = beta_hat_head_df, aes(y = 0)) + 
+  geom_point(data = beta_hat_head_df) +
+  geom_linerange(data = beta_hat_df %>% head(30), aes(ymin = 0, ymax = y)) + 
+  geom_hline(yintercept = mean(beta_hat_df$y), col = 'blue', 
+             linetype = 'dashed') + 
+  labs(x = 'beta', y = 'Prob')
+```
+
+The integral is approximated by mean $\times$ width of region
+
+## How good is this estimate?
+
+With 1000 points on the x-axis:
+
+```{r}
+mean(beta_samp * g_samp) / mean(g_samp)
+```
+
+```{r}
+fit7$estimate
+```
+
+Pretty close. Use more points and it will get closer.
+
+
+## Why use the plug-in method?
+
+Tractability. Calculating the posterior mean of $\beta$ is simple, as we have seen, and much simpler than sampling from its posterior distribution. 
+
+## Why not use the plug-in method?
+
+Because full Bayesian inference is better in so many ways.
+
+But it requires Stan.
+
+We will save that for next time.
+
+# Conclusions
+
+## You have learned:
+
+* How the empiric CRM shifts a pre-specified skeleton to observed data
+* To fit the empiric and logistic subtypes of CRM to observed data using `dfcrm`
+* To generate decent priors immediately using `getprior`
+* The effect on inference of priors on $\beta$
+* How to estimate the posterior mean of $\beta$ using basically any language
+* And how to use this plus-in mean to estimate the posterior Prob(DLT) curve
+* ...Which is the basis of dose-recommendations.
+
+
+## Next steps
+
+* To do really nice inference, you need full Bayesian sampling
+* How to select parameters for performance using simulation studies
+* Trial planning and parameterisation-honing using dose-transition pathways
+
+
+## Thanks
+
+Kristian Brock, PhD
+
+Principal Statistician 
+
+CRCTU
+
+University of Birmingham
+
+k.brock@bham.ac.uk

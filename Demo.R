@@ -1,7 +1,7 @@
 
 library(dfcrm)
 
-skeleton <- c(0.1, 0.17, 0.26, 0.35, 0.49)
+skeleton = c(0.1, 0.15, 0.25, 0.35, 0.5)
 num_doses <- length(skeleton)
 dose_indices <- 1:num_doses
 
